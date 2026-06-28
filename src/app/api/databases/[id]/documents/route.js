@@ -12,7 +12,7 @@ export async function GET(request, { params }) {
   const { searchParams } = new URL(request.url);
   const collectionId = searchParams.get('collectionId');
 
-  const documents = getDocuments(params.id, collectionId);
+  const documents = await getDocuments(params.id, collectionId);
   return NextResponse.json({ documents });
 }
 
@@ -28,6 +28,6 @@ export async function POST(request, { params }) {
     return NextResponse.json({ error: 'collectionId and data required' }, { status: 400 });
   }
 
-  const doc = createDocument(params.id, body.collectionId, body.data);
+  const doc = await createDocument(params.id, body.collectionId, body.data);
   return NextResponse.json({ document: doc }, { status: 201 });
 }

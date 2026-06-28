@@ -9,7 +9,7 @@ export async function GET(request, { params }) {
   const db = getDatabase(params.id);
   if (!db || db.userId !== payload.id) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const collections = getCollections(params.id);
+  const collections = await getCollections(params.id);
   return NextResponse.json({ collections });
 }
 
@@ -24,9 +24,9 @@ export async function POST(request, { params }) {
   const name = body.name?.trim();
   if (!name) return NextResponse.json({ error: 'Name required' }, { status: 400 });
 
-  const existing = getCollections(params.id).find(c => c.name === name);
+  const existing = (await getCollections(params.id)).find(c => c.name === name);
   if (existing) return NextResponse.json({ error: 'Collection already exists' }, { status: 409 });
 
-  const col = createCollection(params.id, name);
+  const col = await createCollection(params.id, name);
   return NextResponse.json({ collection: col }, { status: 201 });
 }

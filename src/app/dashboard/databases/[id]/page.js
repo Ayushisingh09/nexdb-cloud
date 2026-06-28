@@ -9,7 +9,7 @@ function CopyButton({ text, label }) {
   const [copied, setCopied] = useState(false);
   return (
     <button onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-      className="text-[10px] px-3 py-1.5 rounded-lg bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25 border border-indigo-500/20 transition-all flex-shrink-0">
+      className="text-[10px] px-3 py-1.5 rounded-lg bg-[var(--accent-soft)] text-[var(--accent-primary)] hover:bg-[rgba(0,229,153,0.2)] transition-all flex-shrink-0">
       {copied ? 'Copied' : label || 'Copy'}
     </button>
   );
@@ -189,8 +189,9 @@ export default function DatabaseDetailPage({ params }) {
   }
 
   async function handleDeleteDoc(docId) {
+    if (!selectedCollection) return;
     try {
-      const res = await fetch(`/api/databases/${params.id}/documents/${docId}`, {
+      const res = await fetch(`/api/databases/${params.id}/documents/${docId}?collectionId=${selectedCollection.id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${getToken()}` },
       });
@@ -254,8 +255,8 @@ export default function DatabaseDetailPage({ params }) {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-indigo-600/15 flex items-center justify-center border border-indigo-500/10">
-              <svg className="w-4.5 h-4.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+            <div className="w-9 h-9 rounded-xl bg-[var(--accent-soft)] flex items-center justify-center">
+              <svg className="w-[18px] h-[18px] text-[var(--accent-primary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
                 <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
               </svg>
             </div>
@@ -271,7 +272,7 @@ export default function DatabaseDetailPage({ params }) {
         <div className="flex items-center gap-3">
           <span className="text-[10px] text-zinc-500">{db.plan} Plan</span>
           <Link href="/#pricing"
-            className="text-xs px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 transition-colors font-medium">
+            className="text-xs px-4 py-2 rounded-lg bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-[var(--bg-primary)] transition-colors font-semibold">
             Upgrade
           </Link>
           <button onClick={() => setDeleteOpen(true)}
@@ -319,14 +320,14 @@ export default function DatabaseDetailPage({ params }) {
             </svg>
             <h2 className="text-sm font-semibold">API Keys</h2>
           </div>
-          <button className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600/15 text-indigo-400 hover:bg-indigo-600/25 border border-indigo-500/20 transition-all">
+          <button className="text-xs px-3 py-1.5 rounded-lg bg-[var(--accent-soft)] text-[var(--accent-primary)] hover:bg-[rgba(0,229,153,0.2)] transition-all">
             Generate Key
           </button>
         </div>
         <div className="space-y-2">
           <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-black/30 border border-white/5">
             <div className="flex items-center gap-3">
-              <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+              <svg className="w-3.5 h-3.5 text-[var(--accent-primary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
               </svg>
               <div>
@@ -350,9 +351,9 @@ export default function DatabaseDetailPage({ params }) {
           { label: 'Collections', value: formatNumber(collections.length), svg: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10', sub: 'total collections' },
           { label: 'Plan', value: db.plan || 'Free', svg: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z', sub: `${formatBytes(db.storageBytes || 0)} of 10 MB used` },
         ].map((stat, i) => (
-          <div key={i} className="glass rounded-xl p-5 border border-white/5 hover:border-indigo-500/20 transition-all">
+          <div key={i} className="glass rounded-xl p-5 border border-white/5 hover:border-[var(--border-default)] transition-all">
             <div className="flex items-center justify-between mb-3">
-              <svg className="w-5 h-5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+              <svg className="w-5 h-5 text-[var(--accent-primary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
                 <path d={stat.svg} />
               </svg>
               <span className="text-[10px] text-zinc-500">{stat.sub}</span>
@@ -375,7 +376,7 @@ export default function DatabaseDetailPage({ params }) {
           <span className="text-xs text-zinc-500">{formatBytes(db.storageBytes || 0)} / 10 MB</span>
         </div>
         <div className="w-full h-2.5 rounded-full bg-zinc-800 overflow-hidden">
-          <div className="h-full rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 transition-all duration-1000"
+          <div className="h-full rounded-full bg-gradient-to-r from-[var(--accent-primary)] to-[var(--info)] transition-all duration-1000"
             style={{ width: `${progress}%` }} />
         </div>
         <p className="text-[10px] text-zinc-500 mt-2">{progress.toFixed(0)}% used. Upgrade for more storage.</p>
@@ -388,7 +389,7 @@ export default function DatabaseDetailPage({ params }) {
           <div className="px-4 py-3.5 border-b border-white/5 flex items-center justify-between">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Collections</h3>
             <button onClick={() => setShowCreateCol(true)}
-              className="text-[10px] px-2 py-1 rounded bg-indigo-600/15 text-indigo-400 hover:bg-indigo-600/25 border border-indigo-500/20 transition-all">
+              className="text-[10px] px-2 py-1 rounded bg-[var(--accent-soft)] text-[var(--accent-primary)] hover:bg-[rgba(0,229,153,0.2)] transition-all">
               + New
             </button>
           </div>
@@ -404,7 +405,7 @@ export default function DatabaseDetailPage({ params }) {
                 </svg>
                 <p className="text-xs text-zinc-500">No collections yet</p>
                 <button onClick={() => setShowCreateCol(true)}
-                  className="text-[10px] mt-2 px-3 py-1.5 rounded bg-indigo-600/15 text-indigo-400 hover:bg-indigo-600/25 border border-indigo-500/20 transition-all">
+                  className="text-[10px] mt-2 px-3 py-1.5 rounded bg-[var(--accent-soft)] text-[var(--accent-primary)] hover:bg-[rgba(0,229,153,0.2)] transition-all">
                   Create your first
                 </button>
               </div>
@@ -414,7 +415,7 @@ export default function DatabaseDetailPage({ params }) {
                   <button key={col.id} onClick={() => setSelectedCollection(col)}
                     className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-all text-left ${
                       selectedCollection?.id === col.id
-                        ? 'bg-indigo-600/12 text-indigo-300 border border-indigo-500/15'
+                        ? 'bg-[var(--accent-soft)] text-[var(--accent-primary)]'
                         : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.03] border border-transparent'
                     }`}>
                     <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
@@ -436,13 +437,13 @@ export default function DatabaseDetailPage({ params }) {
               <h3 className="text-sm font-semibold">Data Browser</h3>
               <p className="text-[10px] text-zinc-500 mt-0.5">
                 {selectedCollection
-                  ? `Browsing documents in <code class="text-indigo-400">${selectedCollection.name}</code>`
+                  ? `Browsing documents in <code class="text-[var(--accent-primary)]">${selectedCollection.name}</code>`
                   : 'Select a collection to browse documents'}
               </p>
             </div>
             {selectedCollection && (
               <button onClick={() => { setShowAddDoc(true); setDocError(''); }}
-                className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600/15 text-indigo-400 hover:bg-indigo-600/25 border border-indigo-500/20 transition-all flex items-center gap-1">
+                className="text-xs px-3 py-1.5 rounded-lg bg-[var(--accent-soft)] text-[var(--accent-primary)] hover:bg-[rgba(0,229,153,0.2)] transition-all flex items-center gap-1">
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                   <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
                 </svg>
@@ -470,7 +471,7 @@ export default function DatabaseDetailPage({ params }) {
               <p className="text-sm text-zinc-400 mb-1">No documents in this collection</p>
               <p className="text-xs text-zinc-500 mb-5">Add a document to get started</p>
               <button onClick={() => { setShowAddDoc(true); setDocError(''); }}
-                className="text-xs px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 transition-colors">
+                className="text-xs px-4 py-2 rounded-lg bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-[var(--bg-primary)] font-semibold transition-colors">
                 Add Document
               </button>
             </div>
@@ -595,7 +596,7 @@ export default function DatabaseDetailPage({ params }) {
                 <label className="text-xs text-zinc-400 font-medium block mb-2">Collection Name</label>
                 <input type="text" required autoFocus
                   value={newColName} onChange={e => setNewColName(e.target.value)}
-                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-indigo-500/50 transition-colors"
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-600 transition-colors"
                   placeholder="e.g. users" />
               </div>
               <div className="flex gap-3">
@@ -604,7 +605,7 @@ export default function DatabaseDetailPage({ params }) {
                   Cancel
                 </button>
                 <button type="submit" disabled={creatingCol || !newColName.trim()}
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm font-medium transition-all disabled:opacity-40">
+                  className="flex-1 py-2.5 rounded-xl bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-[var(--bg-primary)] text-sm font-semibold transition-all disabled:opacity-40">
                   {creatingCol ? 'Creating...' : 'Create'}
                 </button>
               </div>
@@ -620,13 +621,13 @@ export default function DatabaseDetailPage({ params }) {
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
           <div className="relative w-full max-w-lg glass rounded-2xl border border-white/10 p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
             <h2 className="text-lg font-semibold mb-1">Add Document</h2>
-            <p className="text-xs text-zinc-500 mb-4">Insert into <code className="text-indigo-400">{selectedCollection?.name}</code></p>
+            <p className="text-xs text-zinc-500 mb-4">Insert into <code className="text-[var(--accent-primary)]">{selectedCollection?.name}</code></p>
             <form onSubmit={handleAddDoc} className="space-y-4">
               <div>
                 <label className="text-xs text-zinc-400 font-medium block mb-2">Document Data (JSON)</label>
                 <textarea rows={8} required autoFocus
                   value={newDocJson} onChange={e => setNewDocJson(e.target.value)}
-                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-xs font-mono text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500/50 transition-colors resize-none"
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-xs font-mono text-zinc-300 placeholder-zinc-600 transition-colors resize-none"
                   placeholder='{"key": "value"}' />
               </div>
               {docError && <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-lg px-4 py-3">{docError}</div>}
@@ -636,7 +637,7 @@ export default function DatabaseDetailPage({ params }) {
                   Cancel
                 </button>
                 <button type="submit" disabled={addingDoc}
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm font-medium transition-all disabled:opacity-40">
+                  className="flex-1 py-2.5 rounded-xl bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-[var(--bg-primary)] text-sm font-semibold transition-all disabled:opacity-40">
                   {addingDoc ? 'Adding...' : 'Add Document'}
                 </button>
               </div>

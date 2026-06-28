@@ -1,5 +1,14 @@
 import fs from 'fs';
 import path from 'path';
+import {
+  createNexdbFile, deleteNexdbFile, databaseExists,
+  listCollections as engineListCollections,
+  createCollection as engineCreateCollection,
+  listDocumentsInCollection, insertDocument, insertDocumentAutoId,
+  deleteDocument as engineDeleteDocument,
+  getStats as getEngineStats,
+  getDocument as engineGetDocument,
+} from './nexdb-engine';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const STORE_FILE = path.join(DATA_DIR, 'store.json');
@@ -33,27 +42,29 @@ function genToken() {
   return Array.from({ length: 32 }, () => Math.random().toString(36)[2]).join('');
 }
 
-// Users
+// Users (remain in JSON store)
 export function createUser(email, password, name) {
   const store = getStore();
   if (store.users.find(u => u.email === email)) return null;
   const user = { id: genId(), email, password, name, createdAt: Date.now() };
   store.users.push(user);
 
+  // Create a default database with real NexDb engine file
+  const dbId = genId();
   const db = {
-    id: genId(),
+    id: dbId,
     userId: user.id,
     name: `free-${genId()}`,
     plan: 'Free',
     token: genToken(),
     createdAt: Date.now(),
-    docCount: 0,
-    storageBytes: 0,
-    requests24h: 0,
-    apiKeys: [],
   };
   store.databases.push(db);
   saveStore(store);
+
+  // Create the actual .nexdb file on disk
+  createNexdbFile(dbId).catch(() => {});
+
   return { user, databases: [db] };
 }
 
@@ -86,20 +97,21 @@ export function updateDatabase(dbId, updates) {
 
 export function createDatabase(userId, name) {
   const store = getStore();
+  const dbId = genId();
   const db = {
-    id: genId(),
+    id: dbId,
     userId,
     name: name || `db-${genId()}`,
     plan: 'Free',
     token: genToken(),
     createdAt: Date.now(),
-    docCount: 0,
-    storageBytes: 0,
-    requests24h: 0,
-    apiKeys: [],
   };
   store.databases.push(db);
   saveStore(store);
+
+  // Create actual .nexdb file
+  createNexdbFile(dbId).catch(() => {});
+
   return db;
 }
 
@@ -107,90 +119,82 @@ export function deleteDatabase(dbId) {
   const store = getStore();
   store.databases = store.databases.filter(d => d.id !== dbId);
   saveStore(store);
+
+  // Remove actual .nexdb file
+  deleteNexdbFile(dbId).catch(() => {});
 }
 
-// Collections
-export function getCollections(dbId) {
-  const db = getDatabase(dbId);
-  return db?.collections || [];
-}
-
-export function createCollection(dbId, name) {
-  const store = getStore();
-  const idx = store.databases.findIndex(d => d.id === dbId);
-  if (idx === -1) return null;
-  if (!store.databases[idx].collections) store.databases[idx].collections = [];
-  if (store.databases[idx].collections.find(c => c.name === name)) return null;
-  const col = { id: genId(), name, createdAt: Date.now(), docCount: 0 };
-  store.databases[idx].collections.push(col);
-  saveStore(store);
-  return col;
-}
-
-// Documents
-export function getDocuments(dbId, collectionId) {
-  const store = getStore();
-  const db = store.databases.find(d => d.id === dbId);
-  if (!db) return [];
-  if (!db.documents) db.documents = [];
-  return db.documents.filter(d => d.collectionId === collectionId);
-}
-
-export function getDocument(dbId, docId) {
-  const store = getStore();
-  const db = store.databases.find(d => d.id === dbId);
-  if (!db || !db.documents) return null;
-  return db.documents.find(d => d.id === docId) || null;
-}
-
-export function createDocument(dbId, collectionId, data) {
-  const store = getStore();
-  const idx = store.databases.findIndex(d => d.id === dbId);
-  if (idx === -1) return null;
-  if (!store.databases[idx].documents) store.databases[idx].documents = [];
-  const doc = {
-    id: genId(),
-    collectionId,
-    data,
+// Collections — use real NexDb engine
+export async function getCollections(dbId) {
+  if (!databaseExists(dbId)) return [];
+  const names = await engineListCollections(dbId);
+  // Filter out _default (auto-created by nexdb on first open)
+  return names.filter(n => n !== '_default').map(name => ({
+    id: name,
+    name,
     createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-  store.databases[idx].documents.push(doc);
-  // Update collection docCount
-  if (store.databases[idx].collections) {
-    const col = store.databases[idx].collections.find(c => c.id === collectionId);
-    if (col) col.docCount = (col.docCount || 0) + 1;
-  }
-  // Update database docCount and storageBytes
-  store.databases[idx].docCount = (store.databases[idx].docCount || 0) + 1;
-  store.databases[idx].storageBytes = (store.databases[idx].storageBytes || 0) + JSON.stringify(data).length;
-  saveStore(store);
-  return doc;
+    docCount: 0, // Will be populated by caller if needed
+  }));
 }
 
-export function deleteDocument(dbId, docId) {
-  const store = getStore();
-  const idx = store.databases.findIndex(d => d.id === dbId);
-  if (idx === -1) return false;
-  if (!store.databases[idx].documents) return false;
-  const docIdx = store.databases[idx].documents.findIndex(d => d.id === docId);
-  if (docIdx === -1) return false;
-  const doc = store.databases[idx].documents[docIdx];
-  store.databases[idx].documents.splice(docIdx, 1);
-  // Update counts
-  store.databases[idx].docCount = Math.max(0, (store.databases[idx].docCount || 0) - 1);
-  if (doc.data) {
-    store.databases[idx].storageBytes = Math.max(0, (store.databases[idx].storageBytes || 0) - JSON.stringify(doc.data).length);
+export async function createCollection(dbId, name) {
+  if (!databaseExists(dbId)) await createNexdbFile(dbId);
+  await engineCreateCollection(dbId, name);
+  return { id: name, name, createdAt: Date.now(), docCount: 0 };
+}
+
+// Documents — use real NexDb engine
+export async function getDocuments(dbId, collectionId) {
+  if (!databaseExists(dbId)) return [];
+  const docs = await listDocumentsInCollection(dbId, collectionId);
+  return docs.map(d => ({
+    id: d.id,
+    collectionId,
+    data: d.data,
+    createdAt: d.createdAt || Date.now(),
+    updatedAt: d.createdAt || Date.now(),
+  }));
+}
+
+export async function getDocument(dbId, docId) {
+  if (!databaseExists(dbId)) return null;
+  // Try to find doc across all collections
+  const cols = await engineListCollections(dbId);
+  for (const col of cols) {
+    if (col === '_default') continue;
+    try {
+      const doc = await engineGetDocument(dbId, col, docId);
+      if (doc) return { ...doc, collectionId: col };
+    } catch {}
   }
-  if (store.databases[idx].collections) {
-    const col = store.databases[idx].collections.find(c => c.id === doc.collectionId);
-    if (col) col.docCount = Math.max(0, (col.docCount || 0) - 1);
-  }
-  saveStore(store);
+  return null;
+}
+
+export async function createDocument(dbId, collectionId, data) {
+  if (!databaseExists(dbId)) await createNexdbFile(dbId);
+  const doc = await insertDocumentAutoId(dbId, collectionId, data);
+  return {
+    id: doc.id,
+    collectionId,
+    data: doc.data,
+    createdAt: doc.createdAt || Date.now(),
+    updatedAt: doc.createdAt || Date.now(),
+  };
+}
+
+export async function deleteDocument(dbId, collectionId, docId) {
+  if (!databaseExists(dbId)) return false;
+  await engineDeleteDocument(dbId, collectionId, docId);
   return true;
 }
 
-// API Keys
+// Stats from real engine
+export async function getDatabaseStats(dbId) {
+  if (!databaseExists(dbId)) return { docCount: 0, storageBytes: 0 };
+  return getEngineStats(dbId);
+}
+
+// API Keys (remain in JSON store)
 export function createApiKey(userId, label) {
   const store = getStore();
   const key = {

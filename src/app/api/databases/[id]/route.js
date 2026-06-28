@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { authenticate } from '@/lib/auth';
-import { getDatabase, updateDatabase, deleteDatabase } from '@/lib/db';
+import { getDatabase, updateDatabase, deleteDatabase, getDatabaseStats } from '@/lib/db';
 
 export async function GET(request, { params }) {
   const payload = authenticate(request);
@@ -13,7 +13,17 @@ export async function GET(request, { params }) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  return NextResponse.json({ database: db });
+  // Enrich with live stats from the real NexDb engine
+  const stats = await getDatabaseStats(params.id);
+
+  return NextResponse.json({
+    database: {
+      ...db,
+      docCount: stats.docCount,
+      storageBytes: stats.storageBytes,
+      collectionsCount: stats.collectionsCount,
+    },
+  });
 }
 
 export async function PATCH(request, { params }) {
