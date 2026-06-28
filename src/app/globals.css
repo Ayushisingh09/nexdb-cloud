@@ -256,6 +256,15 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
+.toast-in {
+  animation: toastIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(24px) scale(0.96); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
 input:focus, textarea:focus, select:focus {
   outline: none;
   border-color: var(--accent-primary);

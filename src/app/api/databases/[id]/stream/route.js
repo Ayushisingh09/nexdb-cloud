@@ -1,4 +1,6 @@
-export const runtime = 'edge';
+import { getDatabaseStats } from '@/lib/db';
+import { getMetrics, getDailyHistory } from '@/lib/metrics';
+
 export const dynamic = 'force-dynamic';
 
 export async function GET(request, { params }) {
@@ -25,33 +27,50 @@ export async function GET(request, { params }) {
         }
       };
 
+      const tick = async () => {
+        if (!running) return;
+        try {
+          const [stats, metrics, history] = await Promise.all([
+            getDatabaseStats(params.id),
+            getMetrics(params.id),
+            getDailyHistory(params.id),
+          ]);
+
+          sendEvent('stats', {
+            timestamp: Date.now(),
+            reads: metrics.reads,
+            writes: metrics.writes,
+            docCount: stats.docCount,
+            storageBytes: stats.storageBytes,
+            chartData: history,
+          });
+        } catch {
+          // Database might not exist yet
+        }
+      };
+
       // Send initial snapshot
-      sendEvent('connected', {
-        id: params.id,
-        timestamp: Date.now(),
-        stats: {
-          reads: Math.floor(Math.random() * 100),
-          writes: Math.floor(Math.random() * 50),
-          connections: Math.floor(Math.random() * 20 + 5),
-          latency: Math.random() * 5,
-          storage: Math.floor(Math.random() * 5 + 1),
-        },
-      });
+      (async () => {
+        try {
+          const [stats, metrics] = await Promise.all([
+            getDatabaseStats(params.id),
+            getMetrics(params.id),
+          ]);
+          sendEvent('connected', {
+            id: params.id,
+            timestamp: Date.now(),
+            stats: {
+              reads: metrics.reads,
+              writes: metrics.writes,
+              docCount: stats.docCount,
+              storageBytes: stats.storageBytes,
+            },
+          });
+        } catch {}
+      })();
 
-      // Send live updates every 2 seconds
-      const interval = setInterval(() => {
-        if (!running) { clearInterval(interval); return; }
-        sendEvent('stats', {
-          timestamp: Date.now(),
-          reads: Math.floor(Math.random() * 30),
-          writes: Math.floor(Math.random() * 15),
-          connections: Math.floor(Math.random() * 5 + 3),
-          latency: Math.random() * 3,
-          requests24h: Math.floor(Math.random() * 50 + 10),
-        });
-      }, 2000);
+      const interval = setInterval(tick, 5000);
 
-      // Keep alive
       const keepAlive = setInterval(() => {
         if (!running) { clearInterval(keepAlive); return; }
         sendEvent('keepalive', { time: Date.now() });

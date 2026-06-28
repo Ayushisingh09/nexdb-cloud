@@ -85,6 +85,31 @@ export default function DashboardPage() {
     fetchDbs();
   }, [session]);
 
+  // Connect to aggregated SSE stream for real-time stats
+  useEffect(() => {
+    if (!session) return;
+    const es = new EventSource(`/api/stats/stream?userId=${session.user.id}`);
+
+    es.addEventListener('stats', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        setLiveStats({ reads: data.reads, writes: data.writes, latency: 0 });
+        if (data.chartData && data.chartData.length > 0) {
+          setChartData(data.chartData);
+        }
+      } catch {}
+    });
+
+    es.addEventListener('connected', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        setLiveStats({ reads: data.stats.reads, writes: data.stats.writes, latency: 0 });
+      } catch {}
+    });
+
+    return () => es.close();
+  }, [session]);
+
   if (!session) return null;
 
   const totalDocs = databases.reduce((a, d) => a + (d.docCount || 0), 0);

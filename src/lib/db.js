@@ -9,6 +9,7 @@ import {
   getStats as getEngineStats,
   getDocument as engineGetDocument,
 } from './nexdb-engine';
+import { recordRead, recordWrite } from './metrics';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const STORE_FILE = path.join(DATA_DIR, 'store.json');
@@ -127,6 +128,7 @@ export function deleteDatabase(dbId) {
 // Collections — use real NexDb engine
 export async function getCollections(dbId) {
   if (!databaseExists(dbId)) return [];
+  recordRead(dbId);
   const names = await engineListCollections(dbId);
   // Filter out _default (auto-created by nexdb on first open)
   return names.filter(n => n !== '_default').map(name => ({
@@ -139,6 +141,7 @@ export async function getCollections(dbId) {
 
 export async function createCollection(dbId, name) {
   if (!databaseExists(dbId)) await createNexdbFile(dbId);
+  recordWrite(dbId);
   await engineCreateCollection(dbId, name);
   return { id: name, name, createdAt: Date.now(), docCount: 0 };
 }
@@ -146,6 +149,7 @@ export async function createCollection(dbId, name) {
 // Documents — use real NexDb engine
 export async function getDocuments(dbId, collectionId) {
   if (!databaseExists(dbId)) return [];
+  recordRead(dbId);
   const docs = await listDocumentsInCollection(dbId, collectionId);
   return docs.map(d => ({
     id: d.id,
@@ -158,6 +162,7 @@ export async function getDocuments(dbId, collectionId) {
 
 export async function getDocument(dbId, docId) {
   if (!databaseExists(dbId)) return null;
+  recordRead(dbId);
   // Try to find doc across all collections
   const cols = await engineListCollections(dbId);
   for (const col of cols) {
@@ -172,6 +177,7 @@ export async function getDocument(dbId, docId) {
 
 export async function createDocument(dbId, collectionId, data) {
   if (!databaseExists(dbId)) await createNexdbFile(dbId);
+  recordWrite(dbId);
   const doc = await insertDocumentAutoId(dbId, collectionId, data);
   return {
     id: doc.id,
@@ -184,6 +190,7 @@ export async function createDocument(dbId, collectionId, data) {
 
 export async function deleteDocument(dbId, collectionId, docId) {
   if (!databaseExists(dbId)) return false;
+  recordWrite(dbId);
   await engineDeleteDocument(dbId, collectionId, docId);
   return true;
 }
@@ -191,6 +198,7 @@ export async function deleteDocument(dbId, collectionId, docId) {
 // Stats from real engine
 export async function getDatabaseStats(dbId) {
   if (!databaseExists(dbId)) return { docCount: 0, storageBytes: 0 };
+  recordRead(dbId);
   return getEngineStats(dbId);
 }
 
