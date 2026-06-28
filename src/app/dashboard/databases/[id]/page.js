@@ -379,9 +379,50 @@ export default function DatabaseDetailPage({ params }) {
         <h3 className="text-sm font-semibold mb-4">Quick Start</h3>
         <div className="grid md:grid-cols-3 gap-4">
           {[
-            { lang: 'Rust', code: `use nexdb::{NexDb, Document};\n\n#[tokio::main]\nasync fn main() {\n    let db = NexDb::open(\n        "${connStr}"\n    ).await.unwrap();\n    \n    db.create_collection("users").await;\n    let doc = Document::from_json(\n        r#"{"name":"Alice"}"#\n    ).unwrap();\n    db.insert("users", "u1", doc).await;\n}" },
-            { lang: 'Node.js', code: `const { NexDb } = require('nexdb');\n\nasync function main() {\n    const db = new NexDb("${connStr}");\n    await db.connect();\n    await db.createCollection('users');\n    await db.insertAutoId('users', {\n        name: 'Alice'\n    });\n    const doc = await db.get('users', 'u1');\n    console.log(doc);\n    await db.close();\n}\nmain();` },
-            { lang: 'Python', code: `from nexdb import NexDb\n\ndb = NexDb("${connStr}")\ndb.create_collection("users")\ndb.insert("users", "u1", {\n    "name": "Alice"\n})\ndoc = db.get("users", "u1")\nprint(doc)\ndb.close()` },
+            { lang: 'Rust', code: [
+              'use nexdb::{NexDb, Document};',
+              '',
+              '#[tokio::main]',
+              'async fn main() {',
+              '    let db = NexDb::open(',
+              '        "' + connStr + '"',
+              '    ).await.unwrap();',
+              '',
+              '    db.create_collection("users").await;',
+              '    let doc = Document::from_json(',
+              '        r#\x7b"name":"Alice"\x7d#',
+              '    ).unwrap();',
+              '    db.insert("users", "u1", doc).await;',
+              '}',
+            ].join('\n') },
+            { lang: 'Node.js', code: [
+              'const { NexDb } = require(\'nexdb\');',
+              '',
+              'async function main() {',
+              '    const db = new NexDb("' + connStr + '");',
+              '    await db.connect();',
+              '    await db.createCollection(\'users\');',
+              '    await db.insertAutoId(\'users\', {',
+              '        name: \'Alice\'',
+              '    });',
+              '    const doc = await db.get(\'users\', \'u1\');',
+              '    console.log(doc);',
+              '    await db.close();',
+              '}',
+              'main();',
+            ].join('\n') },
+            { lang: 'Python', code: [
+              'from nexdb import NexDb',
+              '',
+              'db = NexDb("' + connStr + '")',
+              'db.create_collection("users")',
+              'db.insert("users", "u1", {',
+              '    "name": "Alice"',
+              '})',
+              'doc = db.get("users", "u1")',
+              'print(doc)',
+              'db.close()',
+            ].join('\n') },
           ].map((item, i) => (
             <div key={i} className="glass rounded-xl overflow-hidden border border-white/5">
               <div className="px-4 py-2.5 border-b border-white/5 flex items-center justify-between">

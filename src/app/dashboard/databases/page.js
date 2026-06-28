@@ -1,15 +1,27 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { getSession, getUserDatabases } from '@/lib/store';
+import { getSession } from '@/lib/store';
 import { formatBytes, formatNumber, timeAgo } from '@/lib/utils';
 
 export default function DatabasesPage() {
   const [databases, setDatabases] = useState([]);
 
   useEffect(() => {
-    const s = getSession();
-    if (s) setDatabases(getUserDatabases(s.user.id));
+    async function fetchDatabases() {
+      const s = getSession();
+      if (!s) return;
+      try {
+        const res = await fetch('/api/databases', {
+          headers: { Authorization: `Bearer ${s.token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setDatabases(data.databases || []);
+        }
+      } catch {}
+    }
+    fetchDatabases();
   }, []);
 
   return (
