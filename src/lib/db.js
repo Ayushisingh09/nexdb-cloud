@@ -109,6 +109,87 @@ export function deleteDatabase(dbId) {
   saveStore(store);
 }
 
+// Collections
+export function getCollections(dbId) {
+  const db = getDatabase(dbId);
+  return db?.collections || [];
+}
+
+export function createCollection(dbId, name) {
+  const store = getStore();
+  const idx = store.databases.findIndex(d => d.id === dbId);
+  if (idx === -1) return null;
+  if (!store.databases[idx].collections) store.databases[idx].collections = [];
+  if (store.databases[idx].collections.find(c => c.name === name)) return null;
+  const col = { id: genId(), name, createdAt: Date.now(), docCount: 0 };
+  store.databases[idx].collections.push(col);
+  saveStore(store);
+  return col;
+}
+
+// Documents
+export function getDocuments(dbId, collectionId) {
+  const store = getStore();
+  const db = store.databases.find(d => d.id === dbId);
+  if (!db) return [];
+  if (!db.documents) db.documents = [];
+  return db.documents.filter(d => d.collectionId === collectionId);
+}
+
+export function getDocument(dbId, docId) {
+  const store = getStore();
+  const db = store.databases.find(d => d.id === dbId);
+  if (!db || !db.documents) return null;
+  return db.documents.find(d => d.id === docId) || null;
+}
+
+export function createDocument(dbId, collectionId, data) {
+  const store = getStore();
+  const idx = store.databases.findIndex(d => d.id === dbId);
+  if (idx === -1) return null;
+  if (!store.databases[idx].documents) store.databases[idx].documents = [];
+  const doc = {
+    id: genId(),
+    collectionId,
+    data,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  store.databases[idx].documents.push(doc);
+  // Update collection docCount
+  if (store.databases[idx].collections) {
+    const col = store.databases[idx].collections.find(c => c.id === collectionId);
+    if (col) col.docCount = (col.docCount || 0) + 1;
+  }
+  // Update database docCount and storageBytes
+  store.databases[idx].docCount = (store.databases[idx].docCount || 0) + 1;
+  store.databases[idx].storageBytes = (store.databases[idx].storageBytes || 0) + JSON.stringify(data).length;
+  saveStore(store);
+  return doc;
+}
+
+export function deleteDocument(dbId, docId) {
+  const store = getStore();
+  const idx = store.databases.findIndex(d => d.id === dbId);
+  if (idx === -1) return false;
+  if (!store.databases[idx].documents) return false;
+  const docIdx = store.databases[idx].documents.findIndex(d => d.id === docId);
+  if (docIdx === -1) return false;
+  const doc = store.databases[idx].documents[docIdx];
+  store.databases[idx].documents.splice(docIdx, 1);
+  // Update counts
+  store.databases[idx].docCount = Math.max(0, (store.databases[idx].docCount || 0) - 1);
+  if (doc.data) {
+    store.databases[idx].storageBytes = Math.max(0, (store.databases[idx].storageBytes || 0) - JSON.stringify(doc.data).length);
+  }
+  if (store.databases[idx].collections) {
+    const col = store.databases[idx].collections.find(c => c.id === doc.collectionId);
+    if (col) col.docCount = Math.max(0, (col.docCount || 0) - 1);
+  }
+  saveStore(store);
+  return true;
+}
+
 // API Keys
 export function createApiKey(userId, label) {
   const store = getStore();

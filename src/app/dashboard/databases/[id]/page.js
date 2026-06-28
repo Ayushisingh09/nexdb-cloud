@@ -4,33 +4,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getSession, getToken } from '@/lib/store';
 import { formatBytes, formatNumber } from '@/lib/utils';
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-
-const requestHistory = Array.from({ length: 30 }, (_, i) => ({
-  date: new Date(Date.now() - (29 - i) * 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-  reads: Math.floor(Math.random() * 60 + 10),
-  writes: Math.floor(Math.random() * 30 + 5),
-}));
-
-const latencyHistory = Array.from({ length: 24 }, (_, i) => ({
-  hour: `${i}:00`,
-  p50: Math.floor(Math.random() * 5 + 1),
-  p99: Math.floor(Math.random() * 20 + 5),
-}));
-
-const collectionData = [
-  { name: 'users', count: 47, color: '#6366f1' },
-  { name: 'orders', count: 123, color: '#10b981' },
-  { name: 'products', count: 89, color: '#f59e0b' },
-  { name: 'sessions', count: 256, color: '#ef4444' },
-];
-
-const sampleDocs = [
-  { id: 'u1', name: 'Alice Johnson', email: 'alice@example.com', age: 30, role: 'admin' },
-  { id: 'u2', name: 'Bob Smith', email: 'bob@example.com', age: 25, role: 'user' },
-  { id: 'u3', name: 'Carol Davis', email: 'carol@example.com', age: 35, role: 'editor' },
-  { id: 'u4', name: 'David Wilson', email: 'david@example.com', age: 28, role: 'user' },
-];
 
 function CopyButton({ text, label }) {
   const [copied, setCopied] = useState(false);
@@ -51,11 +24,24 @@ export default function DatabaseDetailPage({ params }) {
   const [db, setDb] = useState(null);
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [liveLatency, setLiveLatency] = useState(0);
-  const [liveOps, setLiveOps] = useState(0);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const eventSourceRef = useRef(null);
+
+  // Collections
+  const [collections, setCollections] = useState([]);
+  const [selectedCollection, setSelectedCollection] = useState(null);
+  const [colLoading, setColLoading] = useState(false);
+  const [showCreateCol, setShowCreateCol] = useState(false);
+  const [newColName, setNewColName] = useState('');
+  const [creatingCol, setCreatingCol] = useState(false);
+
+  // Documents
+  const [documents, setDocuments] = useState([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [showAddDoc, setShowAddDoc] = useState(false);
+  const [newDocJson, setNewDocJson] = useState('{\n  \n}');
+  const [addingDoc, setAddingDoc] = useState(false);
+  const [docError, setDocError] = useState('');
 
   useEffect(() => {
     const s = getSession();
@@ -74,9 +60,7 @@ export default function DatabaseDetailPage({ params }) {
           router.push('/dashboard/databases');
         }
       } catch {
-        const { getDatabase } = await import('@/lib/store');
-        const database = getDatabase ? { id: params.id, name: 'demo', plan: 'Free', docCount: 0, storageBytes: 0, requests24h: 0, createdAt: Date.now() } : null;
-        setDb(database || null);
+        router.push('/dashboard/databases');
       } finally {
         setLoading(false);
       }
@@ -84,37 +68,48 @@ export default function DatabaseDetailPage({ params }) {
     fetchDb();
   }, [params.id, router]);
 
+  // Fetch collections
   useEffect(() => {
     if (!db) return;
-    const token = getToken();
-    if (!token) return;
-
-    let eventSource;
-    if (typeof window !== 'undefined' && window.EventSource) {
+    async function fetchCollections() {
+      setColLoading(true);
       try {
-        eventSource = new EventSource(`/api/databases/${params.id}/stream?token=${token}`);
-        eventSource.addEventListener('stats', (e) => {
-          try {
-            const data = JSON.parse(e.data);
-            setLiveLatency(data.stats?.latency || 0);
-            setLiveOps(prev => prev + (data.stats?.reads || 0) + (data.stats?.writes || 0));
-          } catch {}
+        const res = await fetch(`/api/databases/${params.id}/collections`, {
+          headers: { Authorization: `Bearer ${getToken()}` },
         });
-        eventSourceRef.current = eventSource;
-      } catch {}
+        if (res.ok) {
+          const data = await res.json();
+          setCollections(data.collections || []);
+          if (data.collections?.length > 0 && !selectedCollection) {
+            setSelectedCollection(data.collections[0]);
+          }
+        }
+      } catch {} finally {
+        setColLoading(false);
+      }
     }
-
-    return () => { eventSource?.close(); };
+    fetchCollections();
   }, [db, params.id]);
 
+  // Fetch documents when selected collection changes
   useEffect(() => {
-    if (!db || (typeof window !== 'undefined' && window.EventSource)) return;
-    const interval = setInterval(async () => {
-      setLiveOps(prev => prev + Math.floor(Math.random() * 5));
-      setLiveLatency(Math.random() * 3);
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [db]);
+    if (!selectedCollection || !db) return;
+    async function fetchDocs() {
+      setDocsLoading(true);
+      try {
+        const res = await fetch(`/api/databases/${params.id}/documents?collectionId=${selectedCollection.id}`, {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setDocuments(data.documents || []);
+        }
+      } catch {} finally {
+        setDocsLoading(false);
+      }
+    }
+    fetchDocs();
+  }, [selectedCollection, db, params.id]);
 
   async function handleDelete() {
     setDeleting(true);
@@ -126,6 +121,90 @@ export default function DatabaseDetailPage({ params }) {
       if (res.ok) router.push('/dashboard/databases');
     } catch {}
     setDeleting(false);
+  }
+
+  async function handleCreateCol(e) {
+    e.preventDefault();
+    const name = newColName.trim();
+    if (!name) return;
+    setCreatingCol(true);
+    try {
+      const res = await fetch(`/api/databases/${params.id}/collections`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ name }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCollections(prev => [...prev, data.collection]);
+        setSelectedCollection(data.collection);
+        setShowCreateCol(false);
+        setNewColName('');
+      }
+    } catch {} finally {
+      setCreatingCol(false);
+    }
+  }
+
+  async function handleAddDoc(e) {
+    e.preventDefault();
+    if (!selectedCollection) return;
+    setDocError('');
+    let parsed;
+    try {
+      parsed = JSON.parse(newDocJson);
+    } catch {
+      setDocError('Invalid JSON');
+      return;
+    }
+    setAddingDoc(true);
+    try {
+      const res = await fetch(`/api/databases/${params.id}/documents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ collectionId: selectedCollection.id, data: parsed }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDocuments(prev => [...prev, data.document]);
+        setShowAddDoc(false);
+        setNewDocJson('{\n  \n}');
+        // Refresh db stats
+        const dbRes = await fetch(`/api/databases/${params.id}`, {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        if (dbRes.ok) {
+          const dbData = await dbRes.json();
+          setDb(dbData.database);
+        }
+      } else {
+        const err = await res.json();
+        setDocError(err.error || 'Failed');
+      }
+    } catch {
+      setDocError('Network error');
+    } finally {
+      setAddingDoc(false);
+    }
+  }
+
+  async function handleDeleteDoc(docId) {
+    try {
+      const res = await fetch(`/api/databases/${params.id}/documents/${docId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (res.ok) {
+        setDocuments(prev => prev.filter(d => d.id !== docId));
+        const dbRes = await fetch(`/api/databases/${params.id}`, {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        if (dbRes.ok) {
+          const dbData = await dbRes.json();
+          setDb(dbData.database);
+        }
+      }
+    } catch {}
   }
 
   if (loading) return (
@@ -149,10 +228,6 @@ export default function DatabaseDetailPage({ params }) {
         {[1,2,3,4].map(i => <SkeletonBlock key={i} height={100} className="rounded-xl" />)}
       </div>
       <SkeletonBlock height={72} className="rounded-xl" />
-      <div className="grid md:grid-cols-2 gap-6">
-        <SkeletonBlock height={280} className="rounded-xl" />
-        <SkeletonBlock height={280} className="rounded-xl" />
-      </div>
     </div>
   );
 
@@ -160,6 +235,8 @@ export default function DatabaseDetailPage({ params }) {
 
   const connStr = `nexdb://${session.user.id}_${db.id}:${db.token || 'xxxx'}@nexdb.cloud:27017/${db.name}`;
   const progress = Math.min(100, ((db.storageBytes || 0) / (10 * 1024 * 1024)) * 100);
+
+  const totalDocCount = documents.length;
 
   return (
     <div className="max-w-6xl space-y-8">
@@ -192,12 +269,6 @@ export default function DatabaseDetailPage({ params }) {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-            <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-            </svg>
-            <span className="font-mono">{liveOps} ops/session</span>
-          </div>
           <span className="text-[10px] text-zinc-500">{db.plan} Plan</span>
           <Link href="/#pricing"
             className="text-xs px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 transition-colors font-medium">
@@ -212,13 +283,11 @@ export default function DatabaseDetailPage({ params }) {
 
       {/* Connection String */}
       <div className="glass rounded-xl p-6 border border-white/5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <svg className="w-4 h-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
-            </svg>
-            <h2 className="text-sm font-semibold">Connection String</h2>
-          </div>
+        <div className="flex items-center gap-2 mb-4">
+          <svg className="w-4 h-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+          </svg>
+          <h2 className="text-sm font-semibold">Connection String</h2>
         </div>
         <div className="flex items-center gap-3 bg-black/60 rounded-xl px-5 py-4 border border-white/5">
           <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
@@ -278,8 +347,8 @@ export default function DatabaseDetailPage({ params }) {
         {[
           { label: 'Documents', value: formatNumber(db.docCount || 0), svg: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4', sub: 'stored documents' },
           { label: 'Storage', value: formatBytes(db.storageBytes || 0), svg: 'M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', sub: `${progress.toFixed(0)}% of 10 MB` },
-          { label: 'Requests Today', value: formatNumber(db.requests24h || 0), svg: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', sub: 'API calls (24h)' },
-          { label: 'Avg Latency', value: liveLatency ? `${liveLatency.toFixed(1)}ms` : '<1ms', svg: 'M13 10V3L4 14h7v7l9-11h-7z', sub: 'p50 read latency' },
+          { label: 'Collections', value: formatNumber(collections.length), svg: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10', sub: 'total collections' },
+          { label: 'Plan', value: db.plan || 'Free', svg: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z', sub: `${formatBytes(db.storageBytes || 0)} of 10 MB used` },
         ].map((stat, i) => (
           <div key={i} className="glass rounded-xl p-5 border border-white/5 hover:border-indigo-500/20 transition-all">
             <div className="flex items-center justify-between mb-3">
@@ -312,161 +381,139 @@ export default function DatabaseDetailPage({ params }) {
         <p className="text-[10px] text-zinc-500 mt-2">{progress.toFixed(0)}% used. Upgrade for more storage.</p>
       </div>
 
-      {/* Charts Row */}
-      <div className="grid md:grid-cols-2 gap-6">
-        <div className="glass rounded-xl p-6 border border-white/5">
-          <h3 className="text-sm font-semibold mb-1">Read / Write Requests</h3>
-          <p className="text-[10px] text-zinc-500 mb-6">Last 30 days</p>
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={requestHistory}>
-                <defs>
-                  <linearGradient id="reads" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#6366f1" stopOpacity={0.3} /><stop offset="100%" stopColor="#6366f1" stopOpacity={0} /></linearGradient>
-                  <linearGradient id="writes" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#10b981" stopOpacity={0.3} /><stop offset="100%" stopColor="#10b981" stopOpacity={0} /></linearGradient>
-                </defs>
-                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#52525b', fontSize: 10 }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#52525b', fontSize: 10 }} />
-                <Tooltip contentStyle={{ background: '#1a1a25', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }} />
-                <Area type="monotone" dataKey="reads" stroke="#6366f1" strokeWidth={2} fill="url(#reads)" name="Reads" />
-                <Area type="monotone" dataKey="writes" stroke="#10b981" strokeWidth={2} fill="url(#writes)" name="Writes" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="glass rounded-xl p-6 border border-white/5">
-          <h3 className="text-sm font-semibold mb-1">Latency (ms)</h3>
-          <p className="text-[10px] text-zinc-500 mb-6">Last 24 hours</p>
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={latencyHistory}>
-                <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{ fill: '#52525b', fontSize: 10 }} interval={3} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#52525b', fontSize: 10 }} />
-                <Tooltip contentStyle={{ background: '#1a1a25', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }} />
-                <Bar dataKey="p50" fill="#6366f1" radius={[4,4,0,0]} name="p50" />
-                <Bar dataKey="p99" fill="#a855f7" radius={[4,4,0,0]} name="p99" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-
-      {/* Collections + Pie */}
-      <div className="grid md:grid-cols-3 gap-6">
-        <div className="md:col-span-2 glass rounded-xl p-6 border border-white/5">
-          <h3 className="text-sm font-semibold mb-4">Collections</h3>
-          <div className="space-y-2">
-            {collectionData.map((col, i) => (
-              <div key={i} className="flex items-center justify-between px-4 py-3 rounded-xl bg-black/30 border border-white/5 hover:border-indigo-500/20 transition-all cursor-pointer">
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full" style={{ background: col.color }} />
-                  <span className="text-sm font-mono">{col.name}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-zinc-400">{col.count} documents</span>
-                  <svg className="w-3.5 h-3.5 text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="9 18 15 12 9 6"/>
-                  </svg>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="glass rounded-xl p-6 border border-white/5">
-          <h3 className="text-sm font-semibold mb-4">Document Distribution</h3>
-          <div className="h-48">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={collectionData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={4} dataKey="count">
-                  {collectionData.map((col, i) => (
-                    <Cell key={i} fill={col.color} stroke="none" />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={{ background: '#1a1a25', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="flex flex-wrap gap-3 mt-2 justify-center">
-            {collectionData.map((col, i) => (
-              <div key={i} className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full" style={{ background: col.color }} />
-                <span className="text-[10px] text-zinc-400">{col.name}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Data Browser */}
-      <div className="glass rounded-xl border border-white/5 overflow-hidden">
-        <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold">Data Browser</h3>
-            <p className="text-[10px] text-zinc-500 mt-0.5">Browse documents in the <code className="text-indigo-400">users</code> collection</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button className="text-xs px-3 py-1.5 rounded-lg border border-white/10 text-zinc-400 hover:text-zinc-200 transition-all flex items-center gap-1">
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-              Search
-            </button>
-            <button className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600/15 text-indigo-400 hover:bg-indigo-600/25 border border-indigo-500/20 transition-all">
-              Add Document
+      {/* Collections & Data Browser */}
+      <div className="grid md:grid-cols-4 gap-6">
+        {/* Collection sidebar */}
+        <div className="glass rounded-xl border border-white/5 overflow-hidden">
+          <div className="px-4 py-3.5 border-b border-white/5 flex items-center justify-between">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Collections</h3>
+            <button onClick={() => setShowCreateCol(true)}
+              className="text-[10px] px-2 py-1 rounded bg-indigo-600/15 text-indigo-400 hover:bg-indigo-600/25 border border-indigo-500/20 transition-all">
+              + New
             </button>
           </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-white/5">
-                {['ID', 'Name', 'Email', 'Age', 'Role'].map(h => (
-                  <th key={h} className="text-left px-6 py-3 text-[10px] text-zinc-500 uppercase tracking-wider font-medium">{h}</th>
+          <div className="p-2">
+            {colLoading ? (
+              <div className="space-y-1 p-2">
+                {[1,2,3].map(i => <SkeletonBlock key={i} height={32} className="rounded-lg" />)}
+              </div>
+            ) : collections.length === 0 ? (
+              <div className="text-center py-8 px-4">
+                <svg className="w-8 h-8 mx-auto mb-2 text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                </svg>
+                <p className="text-xs text-zinc-500">No collections yet</p>
+                <button onClick={() => setShowCreateCol(true)}
+                  className="text-[10px] mt-2 px-3 py-1.5 rounded bg-indigo-600/15 text-indigo-400 hover:bg-indigo-600/25 border border-indigo-500/20 transition-all">
+                  Create your first
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-0.5">
+                {collections.map(col => (
+                  <button key={col.id} onClick={() => setSelectedCollection(col)}
+                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-all text-left ${
+                      selectedCollection?.id === col.id
+                        ? 'bg-indigo-600/12 text-indigo-300 border border-indigo-500/15'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.03] border border-transparent'
+                    }`}>
+                    <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                    </svg>
+                    <span className="truncate flex-1">{col.name}</span>
+                    <span className="text-[10px] text-zinc-500 tabular-nums">{col.docCount || 0}</span>
+                  </button>
                 ))}
-                <th className="w-20" />
-              </tr>
-            </thead>
-            <tbody>
-              {sampleDocs.map((doc, i) => (
-                <tr key={i} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors group">
-                  <td className="px-6 py-3 font-mono text-xs text-zinc-400">{doc.id}</td>
-                  <td className="px-6 py-3 text-sm">{doc.name}</td>
-                  <td className="px-6 py-3 text-xs text-zinc-400">{doc.email}</td>
-                  <td className="px-6 py-3">{doc.age}</td>
-                  <td className="px-6 py-3">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                      doc.role === 'admin' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' :
-                      doc.role === 'editor' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
-                      'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20'
-                    }`}>{doc.role}</span>
-                  </td>
-                  <td className="px-6 py-3">
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.03]" title="Edit document">
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-                          <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                        </svg>
-                      </button>
-                      <button className="p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-red-500/10" title="Delete document">
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
-                        </svg>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="px-6 py-3 border-t border-white/5 flex items-center justify-between">
-          <span className="text-[10px] text-zinc-500">Showing 4 of 47 documents</span>
-          <div className="flex items-center gap-2">
-            <button className="text-[10px] px-3 py-1 rounded-lg border border-white/10 text-zinc-400 hover:text-zinc-200 transition-colors">Previous</button>
-            <button className="text-[10px] px-3 py-1 rounded-lg border border-white/10 text-zinc-400 hover:text-zinc-200 transition-colors">Next</button>
+              </div>
+            )}
           </div>
+        </div>
+
+        {/* Document browser */}
+        <div className="md:col-span-3 glass rounded-xl border border-white/5 overflow-hidden">
+          <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold">Data Browser</h3>
+              <p className="text-[10px] text-zinc-500 mt-0.5">
+                {selectedCollection
+                  ? `Browsing documents in <code class="text-indigo-400">${selectedCollection.name}</code>`
+                  : 'Select a collection to browse documents'}
+              </p>
+            </div>
+            {selectedCollection && (
+              <button onClick={() => { setShowAddDoc(true); setDocError(''); }}
+                className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600/15 text-indigo-400 hover:bg-indigo-600/25 border border-indigo-500/20 transition-all flex items-center gap-1">
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Add Document
+              </button>
+            )}
+          </div>
+
+          {!selectedCollection ? (
+            <div className="py-16 text-center">
+              <svg className="w-12 h-12 mx-auto mb-4 text-zinc-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+              </svg>
+              <p className="text-sm text-zinc-500">Select or create a collection to view documents</p>
+            </div>
+          ) : docsLoading ? (
+            <div className="p-6 space-y-3">
+              {[1,2,3].map(i => <SkeletonBlock key={i} height={48} className="rounded-lg" />)}
+            </div>
+          ) : documents.length === 0 ? (
+            <div className="py-16 text-center">
+              <svg className="w-12 h-12 mx-auto mb-4 text-zinc-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+              <p className="text-sm text-zinc-400 mb-1">No documents in this collection</p>
+              <p className="text-xs text-zinc-500 mb-5">Add a document to get started</p>
+              <button onClick={() => { setShowAddDoc(true); setDocError(''); }}
+                className="text-xs px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 transition-colors">
+                Add Document
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/5">
+                    <th className="text-left px-5 py-3 text-[10px] text-zinc-500 uppercase tracking-wider font-medium w-20">ID</th>
+                    <th className="text-left px-5 py-3 text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Data</th>
+                    <th className="text-left px-5 py-3 text-[10px] text-zinc-500 uppercase tracking-wider font-medium w-28">Created</th>
+                    <th className="w-16" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {documents.map((doc, i) => {
+                    const jsonStr = JSON.stringify(doc.data, null, 2);
+                    const truncated = jsonStr.length > 120 ? jsonStr.slice(0, 120) + '...' : jsonStr;
+                    return (
+                      <tr key={doc.id} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors group">
+                        <td className="px-5 py-3 font-mono text-[11px] text-zinc-500 align-top pt-4 whitespace-nowrap">{doc.id}</td>
+                        <td className="px-5 py-3">
+                          <pre className="text-[11px] font-mono text-zinc-300 leading-relaxed">{truncated}</pre>
+                        </td>
+                        <td className="px-5 py-3 text-[11px] text-zinc-500 align-top pt-4 whitespace-nowrap">
+                          {new Date(doc.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="px-2 py-3 align-top pt-4">
+                          <button onClick={() => handleDeleteDoc(doc.id)}
+                            className="p-1 rounded text-zinc-600 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
+                            title="Delete document">
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                            </svg>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 
@@ -536,7 +583,69 @@ export default function DatabaseDetailPage({ params }) {
         </div>
       </div>
 
-      {/* Delete confirmation modal */}
+      {/* Create collection modal */}
+      {showCreateCol && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={() => { if (!creatingCol) { setShowCreateCol(false); setNewColName(''); } }}>
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+          <div className="relative w-full max-w-sm glass rounded-2xl border border-white/10 p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-semibold mb-4">Create Collection</h2>
+            <form onSubmit={handleCreateCol} className="space-y-4">
+              <div>
+                <label className="text-xs text-zinc-400 font-medium block mb-2">Collection Name</label>
+                <input type="text" required autoFocus
+                  value={newColName} onChange={e => setNewColName(e.target.value)}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-indigo-500/50 transition-colors"
+                  placeholder="e.g. users" />
+              </div>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => { setShowCreateCol(false); setNewColName(''); }}
+                  className="flex-1 py-2.5 rounded-xl border border-white/10 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-all">
+                  Cancel
+                </button>
+                <button type="submit" disabled={creatingCol || !newColName.trim()}
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm font-medium transition-all disabled:opacity-40">
+                  {creatingCol ? 'Creating...' : 'Create'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add document modal */}
+      {showAddDoc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={() => { if (!addingDoc) { setShowAddDoc(false); setDocError(''); } }}>
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+          <div className="relative w-full max-w-lg glass rounded-2xl border border-white/10 p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-semibold mb-1">Add Document</h2>
+            <p className="text-xs text-zinc-500 mb-4">Insert into <code className="text-indigo-400">{selectedCollection?.name}</code></p>
+            <form onSubmit={handleAddDoc} className="space-y-4">
+              <div>
+                <label className="text-xs text-zinc-400 font-medium block mb-2">Document Data (JSON)</label>
+                <textarea rows={8} required autoFocus
+                  value={newDocJson} onChange={e => setNewDocJson(e.target.value)}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-xs font-mono text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500/50 transition-colors resize-none"
+                  placeholder='{"key": "value"}' />
+              </div>
+              {docError && <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-lg px-4 py-3">{docError}</div>}
+              <div className="flex gap-3">
+                <button type="button" onClick={() => { setShowAddDoc(false); setDocError(''); }}
+                  className="flex-1 py-2.5 rounded-xl border border-white/10 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-all">
+                  Cancel
+                </button>
+                <button type="submit" disabled={addingDoc}
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm font-medium transition-all disabled:opacity-40">
+                  {addingDoc ? 'Adding...' : 'Add Document'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete database confirmation modal */}
       {deleteOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
           onClick={() => { if (!deleting) setDeleteOpen(false); }}>
